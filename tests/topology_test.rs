@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 // Updated to match your exact submodule structure
-use stellarconduit_core::topology::graph::MeshGraph; 
+use stellarconduit_core::topology::graph::MeshGraph;
 use stellarconduit_core::topology::hop_counter::HopCounter;
 
 // ==========================================
@@ -12,9 +12,14 @@ use stellarconduit_core::topology::hop_counter::HopCounter;
 fn test_graph_apply_update_stores_edges() {
     let mut graph = MeshGraph::new();
     graph.apply_update("node_A", "node_B");
-    
-    let neighbors = graph.get_neighbors("node_A").expect("node_A should exist in graph");
-    assert!(neighbors.contains("node_B"), "Graph should store the directed edge to node_B");
+
+    let neighbors = graph
+        .get_neighbors("node_A")
+        .expect("node_A should exist in graph");
+    assert!(
+        neighbors.contains("node_B"),
+        "Graph should store the directed edge to node_B"
+    );
 }
 
 #[test]
@@ -27,7 +32,7 @@ fn test_graph_get_neighbors_for_unknown_peer_returns_none() {
 fn test_graph_ignores_self_loop_edges() {
     let mut graph = MeshGraph::new();
     graph.apply_update("node_A", "node_A");
-    
+
     let neighbors = graph.get_neighbors("node_A");
     if let Some(list) = neighbors {
         assert!(!list.contains("node_A"), "Self-loops must be ignored");
@@ -51,7 +56,7 @@ fn test_hop_counter_calculates_min_plus_one() {
     let mut counter = HopCounter::new();
     counter.update_peer("peer_B", 2);
     assert_eq!(counter.get_my_hops(), 3);
-    
+
     counter.update_peer("peer_C", 5);
     assert_eq!(counter.get_my_hops(), 3);
 }
