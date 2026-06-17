@@ -14,7 +14,7 @@ use stellarconduit_core::gossip::round::RoundScheduler;
 fn test_bloom_new_message_returns_false() {
     let mut filter = BloomFilter::new(1000);
     let message = b"unique_tx_hash_001";
-    assert_eq!(filter.check_and_add(message), false);
+    assert!(!filter.check_and_add(message));
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn test_bloom_seen_message_returns_true() {
     let message = b"unique_tx_hash_002";
 
     filter.check_and_add(message);
-    assert_eq!(filter.check_and_add(message), true);
+    assert!(filter.check_and_add(message));
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_bloom_rotates_on_capacity() {
     }
 
     filter.check_and_add(b"trigger_rotation_msg");
-    assert_eq!(filter.check_and_add(b"msg_0"), true);
+    assert!(filter.check_and_add(b"msg_0"));
 }
 
 #[test]
