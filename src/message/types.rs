@@ -75,6 +75,10 @@ mod signature_serde {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TopologyFlag {
     GoToSleep,
+    /// Device is in duty-cycled BLE mode (2% duty cycle).
+    LowPowerMode,
+    /// Device will enter deep sleep within the next 60s.
+    DeepSleepPending,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

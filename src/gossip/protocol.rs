@@ -15,6 +15,7 @@ use crate::gossip::strike_tracker::StrikeTracker;
 use crate::message::signing::verify_signature;
 use crate::message::types::{ProtocolMessage, SyncRequest, SyncResponse, TransactionEnvelope};
 use crate::peer::identity::PeerIdentity;
+use crate::topology::events::TopologyEventBus;
 use crate::transport::unified::TransportManager;
 
 /// Threshold above which a SyncResponse is treated as a "macro-merge" event.
@@ -256,12 +257,16 @@ pub async fn run_gossip_loop(
     state: Arc<Mutex<GossipState>>,
     peer_list: Arc<Mutex<PeerList>>,
     transport_manager: Arc<Mutex<TransportManager>>,
+    event_bus: Option<TopologyEventBus>,
 ) {
     let fanout_calc = FanoutCalculator::new();
     let mut bloom = SlidingBloomFilter::new(10_000, 0.01);
     let mut metrics = GossipLoopMetrics::default();
     let mut anti_entropy_timer = tokio::time::interval(Duration::from_secs(30));
     let mut ban_check_timer = tokio::time::interval(Duration::from_secs(60));
+
+    // Subscribe to topology events if an event bus is provided.
+    let mut topology_events = event_bus.as_ref().map(|bus| bus.subscribe());
 
     loop {
         tokio::select! {
@@ -298,6 +303,20 @@ pub async fn run_gossip_loop(
                     for peer in unbanned {
                         strike_tracker.clear_peer(&peer);
                     }
+                }
+            }
+
+            // Topology change events — invalidate the cached routing table so the
+            // next fanout round re-computes paths.
+            event = async {
+                let rx = topology_events.as_mut()?;
+                rx.recv().await.ok()
+            }, if topology_events.is_some() => {
+                if let Some(event) = event {
+                    log::debug!("Topology event received: {:?}", event);
+                    // TODO: call routing_table.invalidate() once the routing table
+                    //       module is implemented.
+                    let _ = event;
                 }
             }
         }
@@ -392,6 +411,7 @@ mod tests {
             state,
             peer_list,
             transport_manager,
+            None,
         ));
         let result = timeout(Duration::from_millis(200), async {
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -414,6 +434,7 @@ mod tests {
             state,
             peer_list,
             transport_manager,
+            None,
         ));
         tokio::time::sleep(Duration::from_millis(50)).await;
         handle.abort();
@@ -437,6 +458,7 @@ mod tests {
             state,
             peer_list,
             transport_manager,
+            None,
         ));
         let result = timeout(Duration::from_millis(150), async {
             tokio::time::sleep(Duration::from_millis(50)).await;
