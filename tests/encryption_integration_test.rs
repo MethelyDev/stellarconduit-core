@@ -1,12 +1,12 @@
+use async_trait::async_trait;
+use ed25519_dalek::SigningKey;
+use rand::rngs::OsRng;
+use std::sync::Arc;
 use stellarconduit_core::message::types::{ProtocolMessage, TransactionEnvelope};
 use stellarconduit_core::peer::identity::PeerIdentity;
 use stellarconduit_core::security::encryption::{EncryptedConnection, EncryptionError};
 use stellarconduit_core::transport::connection::{Connection, ConnectionState, TransportType};
 use stellarconduit_core::transport::errors::TransportError;
-use async_trait::async_trait;
-use ed25519_dalek::SigningKey;
-use rand::rngs::OsRng;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[allow(dead_code)]
@@ -188,18 +188,19 @@ async fn test_multiple_transaction_envelopes() {
 #[test]
 fn test_ed25519_to_x25519_consistency() {
     // Test that the same Ed25519 key always produces the same X25519 key
-    use stellarconduit_core::security::encryption;
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
+    use stellarconduit_core::security::encryption;
 
     let signing_key = SigningKey::generate(&mut OsRng);
 
-    let x25519_1 = encryption::ed25519_to_x25519(&signing_key)
-        .expect("Conversion 1 failed");
-    let x25519_2 = encryption::ed25519_to_x25519(&signing_key)
-        .expect("Conversion 2 failed");
+    let x25519_1 = encryption::ed25519_to_x25519(&signing_key).expect("Conversion 1 failed");
+    let x25519_2 = encryption::ed25519_to_x25519(&signing_key).expect("Conversion 2 failed");
 
-    assert_eq!(x25519_1, x25519_2, "X25519 conversion must be deterministic");
+    assert_eq!(
+        x25519_1, x25519_2,
+        "X25519 conversion must be deterministic"
+    );
 }
 
 #[test]

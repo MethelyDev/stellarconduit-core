@@ -59,7 +59,7 @@ impl From<EncryptionError> for TransportError {
 /// Per RFC 7748, the conversion uses SHA-512 clamping on the secret key.
 pub fn ed25519_to_x25519(signing_key: &SigningKey) -> Result<[u8; 32], EncryptionError> {
     use sha2::{Digest, Sha512};
-    
+
     // Extract the 32-byte seed from the signing key
     let seed = signing_key.to_bytes();
 
@@ -67,10 +67,10 @@ pub fn ed25519_to_x25519(signing_key: &SigningKey) -> Result<[u8; 32], Encryptio
     let mut hasher = Sha512::new();
     hasher.update(&seed);
     let hash = hasher.finalize();
-    
+
     let mut x25519_bytes = [0u8; 32];
     x25519_bytes.copy_from_slice(&hash[0..32]);
-    
+
     // Apply RFC 7748 clamping
     x25519_bytes[0] &= 248;
     x25519_bytes[31] &= 127;
@@ -100,11 +100,12 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         let x25519_secret = ed25519_to_x25519(local_key)?;
 
         // Initialize Noise XX pattern
-        let params: NoiseParams = "Noise_XX_25519_ChaChaPoly_SHA256"
-            .parse()
-            .map_err(|e: snow::Error| {
-                EncryptionError::HandshakeFailed(format!("Invalid Noise params: {}", e))
-            })?;
+        let params: NoiseParams =
+            "Noise_XX_25519_ChaChaPoly_SHA256"
+                .parse()
+                .map_err(|e: snow::Error| {
+                    EncryptionError::HandshakeFailed(format!("Invalid Noise params: {}", e))
+                })?;
 
         let builder = snow::Builder::new(params);
         let static_key = x25519_secret;
@@ -112,28 +113,32 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         let mut noise_state = builder
             .local_private_key(&static_key)
             .build_initiator()
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Initiator init failed: {}", e)))?;
+            .map_err(|e| {
+                EncryptionError::HandshakeFailed(format!("Initiator init failed: {}", e))
+            })?;
 
         let mut remote_public_key = [0u8; 32];
         let mut buf = vec![0u8; 1024];
 
         // ─── Handshake Message 1: Initiator -> Responder ───
-        let len = noise_state
-            .write_message(&[], &mut buf)
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Message 1 write failed: {}", e)))?;
+        let len = noise_state.write_message(&[], &mut buf).map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Message 1 write failed: {}", e))
+        })?;
 
         let msg1 = &buf[0..len];
         let _framed_msg1 = frame_noise_message(msg1)?;
 
         inner
-            .send(ProtocolMessage::Transaction(crate::message::types::TransactionEnvelope {
-                message_id: [0u8; 32], // Placeholder for handshake
-                origin_pubkey: [0u8; 32],
-                tx_xdr: String::new(),
-                ttl_hops: 0,
-                timestamp: 0,
-                signature: [0u8; 64],
-            }))
+            .send(ProtocolMessage::Transaction(
+                crate::message::types::TransactionEnvelope {
+                    message_id: [0u8; 32], // Placeholder for handshake
+                    origin_pubkey: [0u8; 32],
+                    tx_xdr: String::new(),
+                    ttl_hops: 0,
+                    timestamp: 0,
+                    signature: [0u8; 64],
+                },
+            ))
             .await?;
 
         // ─── Receive Handshake Message 2: Responder -> Initiator ───
@@ -145,9 +150,9 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         // Extract raw bytes from msg2_framed (simplified - in practice deserialize properly)
         let msg2 = unframe_noise_message(&msg2_framed)?;
 
-        let len = noise_state
-            .read_message(&msg2, &mut buf)
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Message 2 read failed: {}", e)))?;
+        let len = noise_state.read_message(&msg2, &mut buf).map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Message 2 read failed: {}", e))
+        })?;
 
         // Extract remote peer's public key from the payload (XX sends identity in message 2)
         if len > 0 {
@@ -159,28 +164,30 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
             return Err(EncryptionError::HandshakeTimeout);
         }
 
-        let len = noise_state
-            .write_message(&[], &mut buf)
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Message 3 write failed: {}", e)))?;
+        let len = noise_state.write_message(&[], &mut buf).map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Message 3 write failed: {}", e))
+        })?;
 
         let msg3 = &buf[0..len];
         let _framed_msg3 = frame_noise_message(msg3)?;
 
         inner
-            .send(ProtocolMessage::Transaction(crate::message::types::TransactionEnvelope {
-                message_id: [0u8; 32],
-                origin_pubkey: [0u8; 32],
-                tx_xdr: String::new(),
-                ttl_hops: 0,
-                timestamp: 0,
-                signature: [0u8; 64],
-            }))
+            .send(ProtocolMessage::Transaction(
+                crate::message::types::TransactionEnvelope {
+                    message_id: [0u8; 32],
+                    origin_pubkey: [0u8; 32],
+                    tx_xdr: String::new(),
+                    ttl_hops: 0,
+                    timestamp: 0,
+                    signature: [0u8; 64],
+                },
+            ))
             .await?;
 
         // Transition to transport state
-        let noise_state = noise_state
-            .into_transport_mode()
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Transport mode failed: {}", e)))?;
+        let noise_state = noise_state.into_transport_mode().map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Transport mode failed: {}", e))
+        })?;
 
         Ok(EncryptedConnection {
             inner,
@@ -201,11 +208,12 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         let x25519_secret = ed25519_to_x25519(local_key)?;
 
         // Initialize Noise XX pattern
-        let params: NoiseParams = "Noise_XX_25519_ChaChaPoly_SHA256"
-            .parse()
-            .map_err(|e: snow::Error| {
-                EncryptionError::HandshakeFailed(format!("Invalid Noise params: {}", e))
-            })?;
+        let params: NoiseParams =
+            "Noise_XX_25519_ChaChaPoly_SHA256"
+                .parse()
+                .map_err(|e: snow::Error| {
+                    EncryptionError::HandshakeFailed(format!("Invalid Noise params: {}", e))
+                })?;
 
         let builder = snow::Builder::new(params);
         let static_key = x25519_secret;
@@ -213,7 +221,9 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         let mut noise_state = builder
             .local_private_key(&static_key)
             .build_responder()
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Responder init failed: {}", e)))?;
+            .map_err(|e| {
+                EncryptionError::HandshakeFailed(format!("Responder init failed: {}", e))
+            })?;
 
         let mut remote_public_key = [0u8; 32];
         let mut buf = vec![0u8; 1024];
@@ -222,31 +232,33 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         let msg1_framed = inner.recv().await?;
         let msg1 = unframe_noise_message(&msg1_framed)?;
 
-        noise_state
-            .read_message(&msg1, &mut buf)
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Message 1 read failed: {}", e)))?;
+        noise_state.read_message(&msg1, &mut buf).map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Message 1 read failed: {}", e))
+        })?;
 
         // ─── Send Handshake Message 2: Responder -> Initiator ───
         if handshake_start.elapsed() > Duration::from_secs(HANDSHAKE_TIMEOUT_SECS) {
             return Err(EncryptionError::HandshakeTimeout);
         }
 
-        let len = noise_state
-            .write_message(&[], &mut buf)
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Message 2 write failed: {}", e)))?;
+        let len = noise_state.write_message(&[], &mut buf).map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Message 2 write failed: {}", e))
+        })?;
 
         let msg2 = &buf[0..len];
         let _framed_msg2 = frame_noise_message(msg2)?;
 
         inner
-            .send(ProtocolMessage::Transaction(crate::message::types::TransactionEnvelope {
-                message_id: [0u8; 32],
-                origin_pubkey: [0u8; 32],
-                tx_xdr: String::new(),
-                ttl_hops: 0,
-                timestamp: 0,
-                signature: [0u8; 64],
-            }))
+            .send(ProtocolMessage::Transaction(
+                crate::message::types::TransactionEnvelope {
+                    message_id: [0u8; 32],
+                    origin_pubkey: [0u8; 32],
+                    tx_xdr: String::new(),
+                    ttl_hops: 0,
+                    timestamp: 0,
+                    signature: [0u8; 64],
+                },
+            ))
             .await?;
 
         // ─── Receive Handshake Message 3: Initiator -> Responder ───
@@ -257,9 +269,9 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         let msg3_framed = inner.recv().await?;
         let msg3 = unframe_noise_message(&msg3_framed)?;
 
-        let len = noise_state
-            .read_message(&msg3, &mut buf)
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Message 3 read failed: {}", e)))?;
+        let len = noise_state.read_message(&msg3, &mut buf).map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Message 3 read failed: {}", e))
+        })?;
 
         // Extract remote peer's public key
         if len > 0 {
@@ -267,9 +279,9 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
         }
 
         // Transition to transport state
-        let noise_state = noise_state
-            .into_transport_mode()
-            .map_err(|e| EncryptionError::HandshakeFailed(format!("Transport mode failed: {}", e)))?;
+        let noise_state = noise_state.into_transport_mode().map_err(|e| {
+            EncryptionError::HandshakeFailed(format!("Transport mode failed: {}", e))
+        })?;
 
         Ok(EncryptedConnection {
             inner,
@@ -279,7 +291,10 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
     }
 
     /// Verify that the remote peer's public key from the handshake matches the declared identity.
-    pub fn verify_peer_identity(&self, expected_peer: &PeerIdentity) -> Result<(), EncryptionError> {
+    pub fn verify_peer_identity(
+        &self,
+        expected_peer: &PeerIdentity,
+    ) -> Result<(), EncryptionError> {
         if self.remote_public_key != expected_peer.pubkey {
             return Err(EncryptionError::PeerPublicKeyMismatch);
         }
@@ -313,7 +328,10 @@ impl<C: Connection + Send + Sync> EncryptedConnection<C> {
     }
 
     /// Decrypt a ciphertext using ChaCha20-Poly1305 and return the ProtocolMessage.
-    async fn decrypt_message(&mut self, ciphertext: &[u8]) -> Result<ProtocolMessage, EncryptionError> {
+    async fn decrypt_message(
+        &mut self,
+        ciphertext: &[u8],
+    ) -> Result<ProtocolMessage, EncryptionError> {
         let mut plaintext = vec![0u8; ciphertext.len()];
         let len = self
             .noise_state
@@ -376,20 +394,21 @@ impl<C: Connection + Send + Sync> Connection for EncryptedConnection<C> {
             .map_err(|e| TransportError::from(e))?;
 
         // Frame the ciphertext with length prefix
-        let _framed = frame_noise_message(&ciphertext)
-            .map_err(|e| TransportError::from(e))?;
+        let _framed = frame_noise_message(&ciphertext).map_err(|e| TransportError::from(e))?;
 
         // Send the framed ciphertext wrapped in a dummy ProtocolMessage
         // In practice, we'd have a proper framing mechanism
         self.inner
-            .send(ProtocolMessage::Transaction(crate::message::types::TransactionEnvelope {
-                message_id: [0u8; 32],
-                origin_pubkey: [0u8; 32],
-                tx_xdr: String::new(),
-                ttl_hops: 0,
-                timestamp: 0,
-                signature: [0u8; 64],
-            }))
+            .send(ProtocolMessage::Transaction(
+                crate::message::types::TransactionEnvelope {
+                    message_id: [0u8; 32],
+                    origin_pubkey: [0u8; 32],
+                    tx_xdr: String::new(),
+                    ttl_hops: 0,
+                    timestamp: 0,
+                    signature: [0u8; 64],
+                },
+            ))
             .await
     }
 
@@ -397,8 +416,7 @@ impl<C: Connection + Send + Sync> Connection for EncryptedConnection<C> {
         let framed = self.inner.recv().await?;
 
         // Unframe and decrypt
-        let ciphertext = unframe_noise_message(&framed)
-            .map_err(|e| TransportError::from(e))?;
+        let ciphertext = unframe_noise_message(&framed).map_err(|e| TransportError::from(e))?;
 
         self.decrypt_message(&ciphertext)
             .await
@@ -494,12 +512,12 @@ mod tests {
     fn test_tampered_ciphertext_returns_error() {
         // This tests the authentication failure scenario
         // When a ciphertext is tampered with, decryption should fail with AuthenticationFailed
-        
+
         // Create a valid ciphertext, then corrupt it
         let original = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let mut tampered = original.clone();
         tampered[0] ^= 0xFF; // Flip bits in first byte
-        
+
         // Attempting to decrypt tampered data should fail
         // This is verified in the decrypt_message function which returns
         // EncryptionError::AuthenticationFailed on Poly1305 verification failure
@@ -544,10 +562,18 @@ mod tests {
         let signing_key = SigningKey::generate(&mut OsRng);
         let x25519_bytes = ed25519_to_x25519(&signing_key).expect("Conversion failed");
 
-        // Verify clamping: 
+        // Verify clamping:
         // - x25519_bytes[0] & 248 == x25519_bytes[0]
         // - (x25519_bytes[31] & 127) | 64 == x25519_bytes[31]
-        assert_eq!(x25519_bytes[0] & 248, x25519_bytes[0], "First byte clamping failed");
-        assert_eq!(x25519_bytes[31] & 127 | 64, x25519_bytes[31], "Last byte clamping failed");
+        assert_eq!(
+            x25519_bytes[0] & 248,
+            x25519_bytes[0],
+            "First byte clamping failed"
+        );
+        assert_eq!(
+            x25519_bytes[31] & 127 | 64,
+            x25519_bytes[31],
+            "Last byte clamping failed"
+        );
     }
 }
