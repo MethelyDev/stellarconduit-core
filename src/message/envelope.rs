@@ -53,7 +53,12 @@ pub struct EnvelopeBuilder {
 
 impl EnvelopeBuilder {
     pub fn new(origin_pubkey: [u8; 32], tx_xdr: impl Into<String>) -> Self {
-        Self { origin_pubkey, tx_xdr: tx_xdr.into(), ttl_hops: 10, timestamp: None }
+        Self {
+            origin_pubkey,
+            tx_xdr: tx_xdr.into(),
+            ttl_hops: 10,
+            timestamp: None,
+        }
     }
 
     pub fn ttl(mut self, hops: u8) -> Self {
@@ -144,7 +149,10 @@ mod tests {
             .timestamp(1_000_000)
             .build(&key);
         env.message_id = [0u8; 32];
-        assert!(matches!(validate_envelope(&env), Err(EnvelopeError::ZeroMessageId)));
+        assert!(matches!(
+            validate_envelope(&env),
+            Err(EnvelopeError::ZeroMessageId)
+        ));
     }
 
     #[test]
@@ -154,6 +162,9 @@ mod tests {
             .timestamp(1_000_000)
             .build(&key);
         env.tx_xdr = "tampered".to_string();
-        assert!(matches!(validate_envelope(&env), Err(EnvelopeError::MessageIdMismatch)));
+        assert!(matches!(
+            validate_envelope(&env),
+            Err(EnvelopeError::MessageIdMismatch)
+        ));
     }
 }
