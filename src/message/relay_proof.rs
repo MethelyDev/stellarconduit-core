@@ -18,7 +18,6 @@ impl RelayChainProof {
     ) -> Self {
         let message = proof_message_bytes(tx_id, chain_hash, sequence);
         let signature = signing_key.sign(&message);
-
         Self {
             signature: signature.to_bytes(),
             chain_hash: *chain_hash,
@@ -29,7 +28,6 @@ impl RelayChainProof {
     pub fn verify(&self, verifying_key: &VerifyingKey, tx_id: &[u8; 32]) -> bool {
         let message = proof_message_bytes(tx_id, &self.chain_hash, self.sequence);
         let signature = Signature::from_bytes(&self.signature);
-
         verifying_key.verify(&message, &signature).is_ok()
     }
 }

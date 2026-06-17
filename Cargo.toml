@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # Serialization and messaging
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 rmp-serde = "1.1"                                  # MessagePack for compact mesh payloads
 
 # Cryptography and Identity
@@ -27,6 +28,9 @@ soroban-sdk = "22.0.0"
 tokio = { version = "1.37", features = ["full"] }
 async-trait = "0.1"
 futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# HTTP client for Stellar Horizon API
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Persistence
