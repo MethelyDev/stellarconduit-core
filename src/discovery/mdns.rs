@@ -208,7 +208,8 @@ impl MdnsDiscovery {
 
         let address = info
             .get_addresses()
-            .first()
+            .iter()
+            .next()
             .copied()
             .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
 
