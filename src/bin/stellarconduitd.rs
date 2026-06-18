@@ -58,9 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: 3. Start StatePruner (Issue #19)
 
     // TODO: 4. Start TransportManager with WiFi-Direct listener (TCP) on `args.port`
-    let _transport_manager = Arc::new(Mutex::new(TransportManager::new(
-        TransportPreference::Auto,
-    )));
+    let _transport_manager = Arc::new(Mutex::new(TransportManager::new(TransportPreference::Auto)));
 
     let peer_list = Arc::new(Mutex::new(PeerList::new(300)));
 

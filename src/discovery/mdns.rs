@@ -49,9 +49,8 @@ impl MdnsDiscovery {
     /// [`DiscoveryError::MdnsError`] if the daemon cannot be started
     /// (e.g., mDNS sockets are unavailable on the platform).
     pub fn new() -> Result<Self, DiscoveryError> {
-        let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| {
-            DiscoveryError::MdnsError(format!("Failed to create mDNS daemon: {e}"))
-        })?;
+        let daemon = mdns_sd::ServiceDaemon::new()
+            .map_err(|e| DiscoveryError::MdnsError(format!("Failed to create mDNS daemon: {e}")))?;
         Ok(Self {
             daemon,
             service_type: MDNS_SERVICE_TYPE.to_string(),
@@ -86,9 +85,7 @@ impl MdnsDiscovery {
         properties.insert("version".to_string(), "1".to_string());
 
         // Use the wildcard address so the daemon responds on all interfaces.
-        let addrs: &[std::net::IpAddr] = &[std::net::IpAddr::V4(
-            std::net::Ipv4Addr::UNSPECIFIED,
-        )];
+        let addrs: &[std::net::IpAddr] = &[std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)];
 
         let host_name = format!("{service_name}.local.");
 
@@ -242,9 +239,8 @@ fn find_txt_value<'a>(entries: &'a [&'a str], key: &str) -> Option<&'a str> {
 /// Expects an entry of the form `"pubkey=<64-char-hex>"`.
 /// Returns [`DiscoveryError::InvalidTxtRecord`] on failure.
 fn parse_pubkey_from_txt(entries: &[&str]) -> Result<[u8; 32], DiscoveryError> {
-    let hex_str = find_txt_value(entries, "pubkey").ok_or_else(|| {
-        DiscoveryError::InvalidTxtRecord("Missing pubkey TXT record".to_string())
-    })?;
+    let hex_str = find_txt_value(entries, "pubkey")
+        .ok_or_else(|| DiscoveryError::InvalidTxtRecord("Missing pubkey TXT record".to_string()))?;
 
     if hex_str.len() != 64 {
         return Err(DiscoveryError::InvalidTxtRecord(format!(
@@ -289,11 +285,7 @@ mod tests {
     #[test]
     fn test_mdns_txt_record_parsing() {
         let hex = valid_hex_pubkey();
-        let entries = vec![
-            format!("pubkey={hex}"),
-            "hops=3".into(),
-            "version=1".into(),
-        ];
+        let entries = vec![format!("pubkey={hex}"), "hops=3".into(), "version=1".into()];
         let refs: Vec<&str> = entries.iter().map(|s| s.as_str()).collect();
 
         let pubkey = parse_pubkey_from_txt(&refs).unwrap();
