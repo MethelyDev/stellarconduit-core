@@ -8,6 +8,7 @@ use tokio::time::sleep;
 
 use crate::discovery::peer_list::PeerList;
 use crate::gossip::bloom::SlidingBloomFilter;
+use crate::gossip::errors::GossipError;
 use crate::gossip::fanout::{select_random_peers, FanoutCalculator};
 use crate::gossip::queue::PriorityQueue;
 use crate::gossip::round::{GossipScheduler, ACTIVE_ROUND_INTERVAL_MS, IDLE_ROUND_INTERVAL_MS};
@@ -41,8 +42,13 @@ impl GossipState {
         Default::default()
     }
 
-    pub fn add_envelope(&mut self, env: TransactionEnvelope) {
+    pub fn add_envelope(&mut self, env: TransactionEnvelope) -> Result<(), GossipError> {
         self.active_queue.push(ProtocolMessage::Transaction(env));
+        // The Normal-tier capacity cap (issue #62) is not yet enforced, so an
+        // envelope can never be dropped here. Once the cap lands, this will
+        // return `GossipError::NormalQueueOverflow { dropped_id }` when the
+        // oldest envelope is evicted to make room.
+        Ok(())
     }
 
     pub fn pending_macro_merge_len(&self) -> usize {
@@ -56,7 +62,7 @@ impl GossipState {
         let mut moved = 0usize;
         while moved < batch_size {
             if let Some(env) = self.macro_merge_backlog.pop_front() {
-                self.add_envelope(env);
+                let _ = self.add_envelope(env);
                 moved += 1;
             } else {
                 break;
@@ -95,7 +101,7 @@ impl GossipState {
     pub fn handle_sync_response(&mut self, resp: SyncResponse) {
         if resp.missing_envelopes.len() <= MACRO_MERGE_THRESHOLD {
             for env in resp.missing_envelopes {
-                self.add_envelope(env);
+                let _ = self.add_envelope(env);
             }
             return;
         }
@@ -118,14 +124,17 @@ pub async fn process_transaction_envelope(
     strike_tracker: &mut StrikeTracker,
     peer_list: Arc<Mutex<PeerList>>,
     transport_manager: Arc<Mutex<TransportManager>>,
-) -> Result<(), PeerIdentity> {
+) -> Result<(), GossipError> {
     match verify_signature(envelope) {
         Ok(true) => {
             let peer_identity = PeerIdentity::new(envelope.origin_pubkey);
             strike_tracker.clear_peer(&peer_identity);
             Ok(())
         }
-        Ok(false) => Ok(()),
+        Ok(false) => {
+            let peer = PeerIdentity::new(envelope.origin_pubkey);
+            Err(GossipError::InvalidSignature { peer })
+        }
         Err(_) => {
             let peer_identity = PeerIdentity::new(envelope.origin_pubkey);
             let should_ban = strike_tracker.record_failure(&peer_identity);
@@ -145,7 +154,9 @@ pub async fn process_transaction_envelope(
                     peer_identity,
                     strike_tracker.get_strike_count(&peer_identity)
                 );
-                Err(peer_identity)
+                Err(GossipError::PeerBanned {
+                    peer: peer_identity,
+                })
             } else {
                 log::debug!(
                     "Invalid signature from peer {} (strike count: {})",
@@ -351,8 +362,8 @@ mod tests {
     #[test]
     fn test_generate_sync_request() {
         let mut state = GossipState::new();
-        state.add_envelope(mock_envelope(0xAA));
-        state.add_envelope(mock_envelope(0xBB));
+        state.add_envelope(mock_envelope(0xAA)).unwrap();
+        state.add_envelope(mock_envelope(0xBB)).unwrap();
 
         let req = state.generate_sync_request();
         assert_eq!(req.known_message_ids.len(), 2);
@@ -363,11 +374,11 @@ mod tests {
     #[test]
     fn test_handle_sync_request_delta_calculation() {
         let mut node_a = GossipState::new();
-        node_a.add_envelope(mock_envelope(0xAA));
-        node_a.add_envelope(mock_envelope(0xBB));
+        node_a.add_envelope(mock_envelope(0xAA)).unwrap();
+        node_a.add_envelope(mock_envelope(0xBB)).unwrap();
 
         let mut node_b = GossipState::new();
-        node_b.add_envelope(mock_envelope(0xAA));
+        node_b.add_envelope(mock_envelope(0xAA)).unwrap();
 
         let req = node_b.generate_sync_request();
         let resp = node_a.handle_sync_request(&req);
@@ -522,8 +533,8 @@ mod tests {
             env_live.ttl_hops = 3;
             let mut env_dead = mock_envelope(0x02);
             env_dead.ttl_hops = 0;
-            st.add_envelope(env_live);
-            st.add_envelope(env_dead);
+            st.add_envelope(env_live).unwrap();
+            st.add_envelope(env_dead).unwrap();
         }
 
         // No active peers → round fires but nothing is sent.
@@ -549,5 +560,68 @@ mod tests {
         let id = [0xABu8; 32];
         assert!(!bloom.check_and_add(&id)); // first time: new
         assert!(bloom.check_and_add(&id)); // second time: already seen
+    }
+
+    // ── GossipError integration on process_transaction_envelope ─────────────────
+
+    /// Build an envelope carrying a valid Ed25519 signature for `signing_key`.
+    fn signed_envelope(
+        signing_key: &ed25519_dalek::SigningKey,
+        id_byte: u8,
+    ) -> TransactionEnvelope {
+        let mut env = TransactionEnvelope {
+            message_id: [id_byte; 32],
+            origin_pubkey: signing_key.verifying_key().to_bytes(),
+            tx_xdr: format!("XDR{}", id_byte),
+            ttl_hops: 10,
+            timestamp: 0,
+            signature: [0u8; 64],
+        };
+        crate::message::signing::sign_envelope(signing_key, &mut env).unwrap();
+        env
+    }
+
+    #[tokio::test]
+    async fn test_process_envelope_returns_peer_banned_on_threshold() {
+        let mut strike_tracker = StrikeTracker::new();
+        let peer_list = Arc::new(Mutex::new(PeerList::new(300)));
+        let transport_manager = make_transport();
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[0x42; 32]);
+
+        // The StrikeTracker bans once failures exceed max_strikes (3), i.e. on
+        // the 4th invalid envelope. Earlier strikes return Ok(()).
+        let mut last: Result<(), GossipError> = Ok(());
+        for _ in 0..4 {
+            let mut env = signed_envelope(&signing_key, 0x01);
+            env.signature[0] ^= 0xFF; // corrupt → invalid signature
+            last = process_transaction_envelope(
+                &env,
+                &mut strike_tracker,
+                peer_list.clone(),
+                transport_manager.clone(),
+            )
+            .await;
+        }
+
+        assert!(matches!(last, Err(GossipError::PeerBanned { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_process_envelope_ok_on_valid_signature() {
+        let mut strike_tracker = StrikeTracker::new();
+        let peer_list = Arc::new(Mutex::new(PeerList::new(300)));
+        let transport_manager = make_transport();
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[0x43; 32]);
+
+        let env = signed_envelope(&signing_key, 0x01);
+        let result = process_transaction_envelope(
+            &env,
+            &mut strike_tracker,
+            peer_list.clone(),
+            transport_manager.clone(),
+        )
+        .await;
+
+        assert!(result.is_ok());
     }
 }
