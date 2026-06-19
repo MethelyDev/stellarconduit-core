@@ -7,6 +7,8 @@ use clap::Parser;
 
 use stellarconduit_core::discovery::mdns::{DiscoveredPeer, MdnsDiscovery};
 use stellarconduit_core::discovery::peer_list::PeerList;
+use stellarconduit_core::persistence::db::MeshDatabase;
+use stellarconduit_core::security::peer_ban;
 use stellarconduit_core::transport::unified::{TransportManager, TransportPreference};
 
 #[derive(Parser, Debug)]
@@ -54,13 +56,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // will be wired in a follow-up issue.
     let local_pubkey: [u8; 32] = rand::random();
 
-    // TODO: 2. Initialize Database (Issue #18)
+    // Initialize database
+    let db = Arc::new(MeshDatabase::init(&args.db_path).await?);
+
     // TODO: 3. Start StatePruner (Issue #19)
 
     // TODO: 4. Start TransportManager with WiFi-Direct listener (TCP) on `args.port`
     let _transport_manager = Arc::new(Mutex::new(TransportManager::new(TransportPreference::Auto)));
 
     let peer_list = Arc::new(Mutex::new(PeerList::new(300)));
+
+    // Restore active bans from the previous session
+    let restored = peer_ban::restore_bans_from_db(&peer_list, &db).await?;
+    log::info!("Restored {} active peer ban(s) from database.", restored);
 
     // 5. Start mDNS discovery
     let mdns = MdnsDiscovery::new()?;
