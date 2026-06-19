@@ -44,12 +44,12 @@ impl GossipState {
     }
 
     pub fn add_envelope(&mut self, env: TransactionEnvelope) -> Result<(), GossipError> {
-        if let Some(dropped) = self.active_queue.push(ProtocolMessage::Transaction(env)) {
-            if let ProtocolMessage::Transaction(dropped_env) = dropped {
-                return Err(GossipError::NormalQueueOverflow {
-                    dropped_id: dropped_env.message_id,
-                });
-            }
+        if let Some(ProtocolMessage::Transaction(dropped_env)) =
+            self.active_queue.push(ProtocolMessage::Transaction(env))
+        {
+            return Err(GossipError::NormalQueueOverflow {
+                dropped_id: dropped_env.message_id,
+            });
         }
         Ok(())
     }
